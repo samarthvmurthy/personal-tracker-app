@@ -13,14 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -28,19 +27,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,26 +56,26 @@ class MainActivity : ComponentActivity() {
 
 data class MealItem(
     val name: String,
-    var done: Boolean = false
+    val done: Boolean = false
 )
 
 data class DayEntry(
     val day: Int,
     val workoutType: String,
     val workoutTarget: String,
-    var workoutDone: Boolean = false,
-    val meals: MutableList<MealItem> = mutableListOf(),
-    var weight: String = "",
-    var notes: String = ""
+    val workoutDone: Boolean = false,
+    val meals: List<MealItem> = emptyList(),
+    val weight: String = "",
+    val notes: String = ""
 )
 
 data class AppData(
-    val days: MutableList<DayEntry> = mutableListOf()
+    val days: List<DayEntry> = emptyList()
 )
 
 private const val DATA_FILE = "fit40_data.json"
 
-private fun defaultMeals(): MutableList<MealItem> = mutableListOf(
+private fun defaultMeals(): List<MealItem> = listOf(
     MealItem("Breakfast: bread omelette + coffee"),
     MealItem("Post workout: banana"),
     MealItem("Lunch: rice + dal + 2 boiled eggs"),
@@ -98,26 +95,30 @@ private fun defaultWorkout(day: Int): Pair<String, String> {
 }
 
 private fun buildDefaultData(): AppData {
-    val days = (1..40).map { d ->
-        val (type, target) = defaultWorkout(d)
+    val days = (1..40).map { day ->
+        val workout = defaultWorkout(day)
         DayEntry(
-            day = d,
-            workoutType = type,
-            workoutTarget = target,
+            day = day,
+            workoutType = workout.first,
+            workoutTarget = workout.second,
             meals = defaultMeals()
         )
-    }.toMutableList()
-    return AppData(days)
+    }
+    return AppData(days = days)
 }
 
 private fun loadData(context: Context): AppData {
     val file = File(context.filesDir, DATA_FILE)
-    return if (file.exists()) {
-        runCatching {
-            Gson().fromJson(file.readText(), object : TypeToken<AppData>() {}.type)
-        }.getOrElse { buildDefaultData() }
-    } else {
-        buildDefaultData().also { saveData(context, it) }
+    if (!file.exists()) {
+        val initial = buildDefaultData()
+        saveData(context, initial)
+        return initial
+    }
+
+    return try {
+        Gson().fromJson(file.readText(), AppData::class.java) ?: buildDefaultData()
+    } catch (_: Exception) {
+        buildDefaultData()
     }
 }
 
@@ -135,24 +136,34 @@ fun Fit40App(context: Context) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        data = withContext(Dispatchers.IO) { loadData(context) }
+        val loaded: AppData = withContext(Dispatchers.IO) {
+            loadData(context)
+        }
+        data = loaded
     }
 
-    fun persist() {
+    fun updateDay(updated: DayEntry) {
+        val updatedDays = data.days.map { day ->
+            if (day.day == updated.day) updated else day
+        }
+        val newData = AppData(days = updatedDays)
+        data = newData
         scope.launch(Dispatchers.IO) {
-            saveData(context, data)
+            saveData(context, newData)
         }
     }
 
-    val dayEntry = data.days.getOrNull(selectedDay - 1)
+    val dayEntry: DayEntry? = data.days.getOrNull(selectedDay - 1)
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Fit40 Tracker") }) }
-    ) { padding ->
+        topBar = {
+            TopAppBar(title = { Text("Fit40 Tracker") })
+        }
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(paddingValues)
                 .padding(12.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -166,15 +177,15 @@ fun Fit40App(context: Context) {
             when (currentTab) {
                 "Today" -> {
                     if (dayEntry != null) {
-                        DayDetail(dayEntry) {
-                            data = data.copy(days = data.days.toMutableList())
-                            persist()
-                        }
+                        DayDetail(
+                            day = dayEntry,
+                            onUpdate = { updateDay(it) }
+                        )
                     }
                 }
                 "Days" -> {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        itemsIndexed(data.days) { _, item ->
+                        items(data.days) { item ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -184,9 +195,15 @@ fun Fit40App(context: Context) {
                                     }
                             ) {
                                 Column(Modifier.padding(12.dp)) {
-                                    Text("Day ${item.day} • ${item.workoutType}", style = MaterialTheme.typography.titleMedium)
-                                    Text(item.workoutTarget, style = MaterialTheme.typography.bodySmall)
-                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = "Day ${item.day} • ${item.workoutType}",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        text = item.workoutTarget,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     val mealDone = item.meals.count { it.done }
                                     Text("Workout: ${if (item.workoutDone) "Done" else "Pending"}")
                                     Text("Meals: $mealDone/${item.meals.size}")
@@ -196,7 +213,7 @@ fun Fit40App(context: Context) {
                     }
                 }
                 "Progress" -> {
-                    ProgressScreen(data)
+                    ProgressScreen(data = data)
                 }
             }
         }
@@ -204,7 +221,10 @@ fun Fit40App(context: Context) {
 }
 
 @Composable
-fun DayDetail(day: DayEntry, onUpdate: () -> Unit) {
+fun DayDetail(
+    day: DayEntry,
+    onUpdate: (DayEntry) -> Unit
+) {
     Column(
         modifier = Modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -216,33 +236,39 @@ fun DayDetail(day: DayEntry, onUpdate: () -> Unit) {
         Row {
             Checkbox(
                 checked = day.workoutDone,
-                onCheckedChange = {
-                    day.workoutDone = it
-                    onUpdate()
+                onCheckedChange = { checked ->
+                    onUpdate(day.copy(workoutDone = checked))
                 }
             )
-            Text("Workout completed", modifier = Modifier.padding(top = 12.dp))
+            Text(
+                text = "Workout completed",
+                modifier = Modifier.padding(top = 12.dp)
+            )
         }
 
         Text("Meals", style = MaterialTheme.typography.titleMedium)
+
         day.meals.forEachIndexed { index, meal ->
             Row {
                 Checkbox(
                     checked = meal.done,
-                    onCheckedChange = {
-                        day.meals[index] = meal.copy(done = it)
-                        onUpdate()
+                    onCheckedChange = { checked ->
+                        val updatedMeals = day.meals.toMutableList()
+                        updatedMeals[index] = meal.copy(done = checked)
+                        onUpdate(day.copy(meals = updatedMeals))
                     }
                 )
-                Text(meal.name, modifier = Modifier.padding(top = 12.dp))
+                Text(
+                    text = meal.name,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
             }
         }
 
         OutlinedTextField(
             value = day.weight,
-            onValueChange = {
-                day.weight = it
-                onUpdate()
+            onValueChange = { value ->
+                onUpdate(day.copy(weight = value))
             },
             label = { Text("Weight") },
             modifier = Modifier.fillMaxWidth()
@@ -250,9 +276,8 @@ fun DayDetail(day: DayEntry, onUpdate: () -> Unit) {
 
         OutlinedTextField(
             value = day.notes,
-            onValueChange = {
-                day.notes = it
-                onUpdate()
+            onValueChange = { value ->
+                onUpdate(day.copy(notes = value))
             },
             label = { Text("Notes") },
             modifier = Modifier.fillMaxWidth()
@@ -263,29 +288,30 @@ fun DayDetail(day: DayEntry, onUpdate: () -> Unit) {
 @Composable
 fun ProgressScreen(data: AppData) {
     val workoutDone = data.days.count { it.workoutDone }
+    val totalDays = data.days.size
     val totalMeals = data.days.sumOf { it.meals.size }
-    val mealsDone = data.days.sumOf { d -> d.meals.count { it.done } }
+    val mealsDone = data.days.sumOf { day -> day.meals.count { it.done } }
 
-    val workoutProgress = if (data.days.isEmpty()) 0f else workoutDone.toFloat() / data.days.size
-    val mealProgress = if (totalMeals == 0) 0f else mealsDone.toFloat() / totalMeals
+    val workoutProgress = if (totalDays == 0) 0f else workoutDone.toFloat() / totalDays.toFloat()
+    val mealProgress = if (totalMeals == 0) 0f else mealsDone.toFloat() / totalMeals.toFloat()
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Text("Workout adherence", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { workoutProgress }, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
-                Text("$workoutDone / ${data.days.size} days")
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("$workoutDone / $totalDays days")
             }
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Text("Meal adherence", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { mealProgress }, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text("$mealsDone / $totalMeals meals")
             }
         }
@@ -293,7 +319,7 @@ fun ProgressScreen(data: AppData) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Text("Plan summary", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text("40 day lean cut tracker")
                 Text("Push / Pull / Legs rotation")
                 Text("Local JSON storage inside app")
