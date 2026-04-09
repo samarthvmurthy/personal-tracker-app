@@ -29,9 +29,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalDining
 import androidx.compose.material.icons.filled.MonitorWeight
@@ -56,24 +60,26 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Stable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.gson.Gson
@@ -98,6 +104,7 @@ private val AppAccent = Color(0xFF7C4DFF)
 private val AppAccent2 = Color(0xFF00D4FF)
 private val AppSuccess = Color(0xFF28C76F)
 private val AppWarning = Color(0xFFFFB020)
+private val AppRest = Color(0xFFFF7A59)
 private val AppTextSubtle = Color(0xFF9BA7C7)
 
 private val Fit40Colors = darkColorScheme(
@@ -124,7 +131,8 @@ data class DayEntry(
     val workoutDone: Boolean = false,
     val meals: List<MealItem> = emptyList(),
     val weight: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    val isRestDay: Boolean = false
 )
 
 data class AppData(
@@ -139,6 +147,13 @@ private fun defaultMeals(): List<MealItem> = listOf(
     MealItem("Lunch • Rice + dal + 2 boiled eggs"),
     MealItem("Evening • Tea"),
     MealItem("Dinner • Roasted chicken + 2 eggs + curd")
+)
+
+private fun restMeals(): List<MealItem> = listOf(
+    MealItem("Breakfast • Bread omelette + coffee"),
+    MealItem("Lunch • Rice + dal + eggs"),
+    MealItem("Evening • Tea"),
+    MealItem("Dinner • Chicken / eggs / curd")
 )
 
 private fun defaultWorkout(day: Int): Pair<String, String> {
@@ -165,6 +180,18 @@ private fun buildDefaultData(): AppData {
     return AppData(days = days)
 }
 
+private fun normalizeLoadedData(data: AppData): AppData {
+    val fixed = data.days.mapIndexed { index, d ->
+        d.copy(
+            day = index + 1,
+            meals = if (d.meals.isEmpty()) {
+                if (d.isRestDay) restMeals() else defaultMeals()
+            } else d.meals
+        )
+    }
+    return AppData(fixed)
+}
+
 private fun saveData(context: Context, data: AppData) {
     File(context.filesDir, DATA_FILE).writeText(Gson().toJson(data))
 }
@@ -177,7 +204,7 @@ private fun loadData(context: Context): AppData {
         return initial
     }
     return try {
-        Gson().fromJson(file.readText(), AppData::class.java) ?: buildDefaultData()
+        normalizeLoadedData(Gson().fromJson(file.readText(), AppData::class.java) ?: buildDefaultData())
     } catch (_: Exception) {
         buildDefaultData()
     }
@@ -199,7 +226,7 @@ fun Fit40Root(context: Context) {
 @Composable
 fun Fit40App(context: Context) {
     var data by remember { mutableStateOf(AppData()) }
-    var selectedDay by remember { mutableIntStateOf(1) }
+    var selectedDay by remember { mutableStateOf(1) }
     var tab by remember { mutableStateOf("home") }
     val snackbars = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -221,7 +248,25 @@ fun Fit40App(context: Context) {
         persist(AppData(updatedDays), message)
     }
 
-    val currentDay = data.days.getOrNull(selectedDay - 1) ?: buildDefaultData().days.first()
+    fun addRestDay(afterDay: Int) {
+        val current = data.days.toMutableList()
+        val insertIndex = current.indexOfFirst { it.day == afterDay } + 1
+        val rest = DayEntry(
+            day = 0,
+            workoutType = "Rest Day",
+            workoutTarget = "Recovery, mobility, stretching, walking, hydration",
+            workoutDone = false,
+            meals = restMeals(),
+            isRestDay = true
+        )
+        current.add(insertIndex.coerceAtLeast(0), rest)
+        val renumbered = current.mapIndexed { index, day -> day.copy(day = index + 1) }
+        persist(AppData(renumbered), "Rest day added")
+        selectedDay = (insertIndex + 1).coerceAtLeast(1)
+    }
+
+    val currentDay = data.days.getOrNull((selectedDay - 1).coerceAtLeast(0))
+        ?: buildDefaultData().days.first()
 
     Scaffold(
         containerColor = AppBg,
@@ -289,9 +334,9 @@ fun Fit40App(context: Context) {
                 )
                 "days" -> DaysScreen(
                     appData = data,
-                    selectedDay = selectedDay,
                     onSelectDay = { selectedDay = it },
-                    onUpdateDay = { updateDay(it, "Day updated") }
+                    onUpdateDay = { updateDay(it, "Day updated") },
+                    onAddRestDay = { addRestDay(it) }
                 )
                 else -> ProgressScreen(data = data)
             }
@@ -306,11 +351,13 @@ fun HomeScreen(
     onOpenDay: (Int) -> Unit,
     onUpdateDay: (DayEntry) -> Unit
 ) {
-    val workoutDone = appData.days.count { it.workoutDone }
-    val totalMeals = appData.days.sumOf { it.meals.size }
+    val trackedWorkoutDays = appData.days.filter { !it.isRestDay }
+    val workoutDone = trackedWorkoutDays.count { it.workoutDone }
+    val totalWorkoutDays = max(1, trackedWorkoutDays.size)
+    val totalMeals = max(1, appData.days.sumOf { it.meals.size })
     val mealsDone = appData.days.sumOf { d -> d.meals.count { it.done } }
-    val workoutProgress = if (appData.days.isEmpty()) 0f else workoutDone.toFloat() / appData.days.size
-    val mealProgress = if (totalMeals == 0) 0f else mealsDone.toFloat() / totalMeals
+    val workoutProgress = workoutDone.toFloat() / totalWorkoutDays
+    val mealProgress = mealsDone.toFloat() / totalMeals
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -325,8 +372,8 @@ fun HomeScreen(
                 StatCard(
                     modifier = Modifier.weight(1f),
                     title = "Workout",
-                    value = "$workoutDone/40",
-                    subtitle = "Days done",
+                    value = "$workoutDone/$totalWorkoutDays",
+                    subtitle = "Training days",
                     accent = AppAccent,
                     progress = workoutProgress,
                     icon = Icons.Default.SportsGymnastics
@@ -368,14 +415,17 @@ fun HeroCard(day: DayEntry, onOpenDay: (Int) -> Unit) {
             modifier = Modifier
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(Color(0xFF241B4B), Color(0xFF0E2B4B))
+                        colors = if (day.isRestDay)
+                            listOf(Color(0xFF4B2A1F), Color(0xFF4B1F39))
+                        else
+                            listOf(Color(0xFF241B4B), Color(0xFF0E2B4B))
                     )
                 )
                 .padding(20.dp)
         ) {
             AssistChip(
                 onClick = { onOpenDay(day.day) },
-                label = { Text("Day ${day.day} of 40") },
+                label = { Text("Day ${day.day}") },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color.White.copy(alpha = 0.12f),
                     labelColor = Color.White
@@ -395,7 +445,11 @@ fun HeroCard(day: DayEntry, onOpenDay: (Int) -> Unit) {
             )
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Pill(if (day.workoutDone) "Workout done" else "Workout pending", if (day.workoutDone) AppSuccess else AppWarning)
+                if (day.isRestDay) {
+                    Pill("Recovery day", AppRest)
+                } else {
+                    Pill(if (day.workoutDone) "Workout done" else "Workout pending", if (day.workoutDone) AppSuccess else AppWarning)
+                }
                 Pill("${day.meals.count { it.done }}/${day.meals.size} meals", AppAccent2)
             }
             Spacer(Modifier.height(16.dp))
@@ -458,7 +512,9 @@ fun StatCard(
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
                 progress = { progress.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp),
                 color = accent,
                 trackColor = Color.White.copy(alpha = 0.10f),
                 strokeCap = StrokeCap.Round
@@ -481,20 +537,30 @@ fun TodayWorkoutCard(day: DayEntry, onUpdateDay: (DayEntry) -> Unit) {
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.SportsGymnastics, contentDescription = null, tint = AppAccent)
+                Icon(
+                    if (day.isRestDay) Icons.Default.Hotel else Icons.Default.SportsGymnastics,
+                    contentDescription = null,
+                    tint = if (day.isRestDay) AppRest else AppAccent
+                )
                 Spacer(Modifier.width(10.dp))
-                Text("Workout target", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (day.isRestDay) "Rest day plan" else "Workout target",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
             Text(day.workoutTarget, color = AppTextSubtle)
-            Divider(color = Color.White.copy(alpha = 0.08f))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = day.workoutDone,
-                    onCheckedChange = { checked ->
-                        onUpdateDay(day.copy(workoutDone = checked))
-                    }
-                )
-                Text(if (day.workoutDone) "Completed for today" else "Mark workout complete")
+            if (!day.isRestDay) {
+                Divider(color = Color.White.copy(alpha = 0.08f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = day.workoutDone,
+                        onCheckedChange = { checked ->
+                            onUpdateDay(day.copy(workoutDone = checked))
+                        }
+                    )
+                    Text(if (day.workoutDone) "Completed for today" else "Mark workout complete")
+                }
             }
         }
     }
@@ -576,11 +642,11 @@ fun NotesWeightCard(day: DayEntry, onUpdateDay: (DayEntry) -> Unit) {
 @Composable
 fun DaysScreen(
     appData: AppData,
-    selectedDay: Int,
     onSelectDay: (Int) -> Unit,
-    onUpdateDay: (DayEntry) -> Unit
+    onUpdateDay: (DayEntry) -> Unit,
+    onAddRestDay: (Int) -> Unit
 ) {
-    val current = appData.days.getOrNull(selectedDay - 1)
+    val expanded = remember { mutableStateMapOf<Int, Boolean>() }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -590,51 +656,82 @@ fun DaysScreen(
         item {
             SectionTitle("All days")
         }
+
         items(appData.days) { day ->
             val doneMeals = day.meals.count { it.done }
+            val isExpanded = expanded[day.day] == true
+
             Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (selectedDay == day.day) AppSurface2 else AppCard
-                ),
+                colors = CardDefaults.cardColors(containerColor = AppCard),
                 shape = RoundedCornerShape(22.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelectDay(day.day) }
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Day ${day.day}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expanded[day.day] = !(expanded[day.day] ?: false)
+                                onSelectDay(day.day)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Day ${day.day}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Pill(
+                                    if (day.isRestDay) "Rest Day" else day.workoutType,
+                                    if (day.isRestDay) AppRest else AppAccent
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                day.workoutTarget,
+                                color = AppTextSubtle,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = Color.White
                         )
-                        Spacer(Modifier.width(10.dp))
-                        Pill(day.workoutType, AppAccent)
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text(day.workoutTarget, color = AppTextSubtle, style = MaterialTheme.typography.bodySmall)
+
                     Spacer(Modifier.height(12.dp))
+
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SmallStatus("Workout", if (day.workoutDone) "Done" else "Pending", if (day.workoutDone) AppSuccess else AppWarning)
+                        SmallStatus(
+                            if (day.isRestDay) "Recovery" else "Workout",
+                            if (day.isRestDay) "Planned" else if (day.workoutDone) "Done" else "Pending",
+                            if (day.isRestDay) AppRest else if (day.workoutDone) AppSuccess else AppWarning
+                        )
                         SmallStatus("Meals", "$doneMeals/${day.meals.size}", AppAccent2)
                     }
-                }
-            }
-        }
 
-        if (current != null) {
-            item {
-                Spacer(Modifier.height(6.dp))
-                SectionTitle("Selected day")
-            }
-            item {
-                TodayWorkoutCard(current, onUpdateDay)
-            }
-            item {
-                MealsCard(current, onUpdateDay)
-            }
-            item {
-                NotesWeightCard(current, onUpdateDay)
+                    if (isExpanded) {
+                        Spacer(Modifier.height(16.dp))
+                        TodayWorkoutCard(day, onUpdateDay)
+                        Spacer(Modifier.height(12.dp))
+                        MealsCard(day, onUpdateDay)
+                        Spacer(Modifier.height(12.dp))
+                        NotesWeightCard(day, onUpdateDay)
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { onAddRestDay(day.day) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.AddCircle, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Add rest day after this")
+                        }
+                    }
+                }
             }
         }
     }
@@ -654,12 +751,14 @@ fun SmallStatus(label: String, value: String, color: Color) {
 
 @Composable
 fun ProgressScreen(data: AppData) {
-    val workoutDone = data.days.count { it.workoutDone }
+    val trackedWorkoutDays = data.days.filter { !it.isRestDay }
+    val workoutDone = trackedWorkoutDays.count { it.workoutDone }
+    val totalWorkoutDays = max(1, trackedWorkoutDays.size)
     val totalMeals = max(1, data.days.sumOf { it.meals.size })
     val mealsDone = data.days.sumOf { d -> d.meals.count { it.done } }
-    val workoutProgress = if (data.days.isEmpty()) 0f else workoutDone.toFloat() / data.days.size
+    val workoutProgress = workoutDone.toFloat() / totalWorkoutDays.toFloat()
     val mealProgress = mealsDone.toFloat() / totalMeals.toFloat()
-    val streak = calculateStreak(data.days)
+    val streak = calculateWorkoutStreak(data.days)
     val weightPoints = data.days.mapNotNull { d ->
         d.weight.toFloatOrNull()?.let { d.day to it }
     }
@@ -678,9 +777,9 @@ fun ProgressScreen(data: AppData) {
                     modifier = Modifier.weight(1f),
                     title = "Streak",
                     value = streak.toString(),
-                    subtitle = "Current days",
+                    subtitle = "Workout days",
                     accent = AppSuccess,
-                    progress = (streak / 40f).coerceIn(0f, 1f),
+                    progress = (streak / max(1f, totalWorkoutDays.toFloat())).coerceIn(0f, 1f),
                     icon = Icons.Default.CheckCircle
                 )
                 StatCard(
@@ -697,8 +796,14 @@ fun ProgressScreen(data: AppData) {
         item {
             ModernChartCard(
                 title = "Workout completion by day",
-                subtitle = "Completed days glow brighter",
-                values = data.days.map { if (it.workoutDone) 1f else 0.12f },
+                subtitle = "Rest days are skipped from workout completion",
+                values = data.days.map {
+                    when {
+                        it.isRestDay -> 0.06f
+                        it.workoutDone -> 1f
+                        else -> 0.12f
+                    }
+                },
                 activeColor = AppAccent,
                 baselineColor = Color.White.copy(alpha = 0.08f)
             )
@@ -706,7 +811,7 @@ fun ProgressScreen(data: AppData) {
         item {
             ModernChartCard(
                 title = "Meal adherence by day",
-                subtitle = "Meals completed / total meals",
+                subtitle = "Includes workout and rest days",
                 values = data.days.map {
                     if (it.meals.isEmpty()) 0f else it.meals.count { meal -> meal.done }.toFloat() / it.meals.size.toFloat()
                 },
@@ -718,14 +823,15 @@ fun ProgressScreen(data: AppData) {
             WeightCard(weightPoints)
         }
         item {
-            SummaryCard(workoutDone, data.days.size, mealsDone, totalMeals, streak, workoutProgress, mealProgress)
+            SummaryCard(workoutDone, totalWorkoutDays, mealsDone, totalMeals, streak, workoutProgress, mealProgress, data.days.count { it.isRestDay })
         }
     }
 }
 
-private fun calculateStreak(days: List<DayEntry>): Int {
+private fun calculateWorkoutStreak(days: List<DayEntry>): Int {
     var streak = 0
     for (day in days) {
+        if (day.isRestDay) continue
         if (day.workoutDone) streak++ else break
     }
     return streak
@@ -768,14 +874,14 @@ fun ModernChartCard(
                     drawRoundRect(
                         color = baselineColor,
                         topLeft = Offset(left, 0f),
-                        size = androidx.compose.ui.geometry.Size(barWidth, chartHeight),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(24f, 24f)
+                        size = Size(barWidth, chartHeight),
+                        cornerRadius = CornerRadius(24f, 24f)
                     )
                     drawRoundRect(
                         color = activeColor,
                         topLeft = Offset(left, top),
-                        size = androidx.compose.ui.geometry.Size(barWidth, chartHeight - top),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(24f, 24f)
+                        size = Size(barWidth, chartHeight - top),
+                        cornerRadius = CornerRadius(24f, 24f)
                     )
                 }
             }
@@ -856,7 +962,8 @@ fun SummaryCard(
     totalMeals: Int,
     streak: Int,
     workoutProgress: Float,
-    mealProgress: Float
+    mealProgress: Float,
+    restDays: Int
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AppCard),
@@ -872,6 +979,7 @@ fun SummaryCard(
             SummaryRow("Workout completion", "$workoutDone / $totalDays")
             SummaryRow("Meal adherence", "$mealsDone / $totalMeals")
             SummaryRow("Current streak", "$streak days")
+            SummaryRow("Rest days", restDays.toString())
             SummaryRow("Workout rate", "${(workoutProgress * 100).toInt()}%")
             SummaryRow("Meal rate", "${(mealProgress * 100).toInt()}%")
         }
