@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Home
@@ -67,8 +68,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -87,6 +89,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import kotlin.math.max
 
 class MainActivity : ComponentActivity() {
@@ -105,6 +110,7 @@ private val AppAccent2 = Color(0xFF00D4FF)
 private val AppSuccess = Color(0xFF28C76F)
 private val AppWarning = Color(0xFFFFB020)
 private val AppRest = Color(0xFFFF7A59)
+private val AppDanger = Color(0xFFFF5C7A)
 private val AppTextSubtle = Color(0xFF9BA7C7)
 
 private val Fit40Colors = darkColorScheme(
@@ -124,22 +130,32 @@ data class MealItem(
     val done: Boolean = false
 )
 
+data class ExerciseItem(
+    val name: String,
+    val movement: String,
+    val targetMuscles: String,
+    val reps: String
+)
+
 data class DayEntry(
     val day: Int,
     val workoutType: String,
     val workoutTarget: String,
     val workoutDone: Boolean = false,
     val meals: List<MealItem> = emptyList(),
+    val exercises: List<ExerciseItem> = emptyList(),
     val weight: String = "",
     val notes: String = "",
     val isRestDay: Boolean = false
 )
 
 data class AppData(
+    val startDate: String = LocalDate.now().toString(),
     val days: List<DayEntry> = emptyList()
 )
 
 private const val DATA_FILE = "fit40_data.json"
+private val DISPLAY_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
 
 private fun defaultMeals(): List<MealItem> = listOf(
     MealItem("Breakfast • Bread omelette + coffee"),
@@ -156,14 +172,76 @@ private fun restMeals(): List<MealItem> = listOf(
     MealItem("Dinner • Chicken / eggs / curd")
 )
 
-private fun defaultWorkout(day: Int): Pair<String, String> {
+private fun pushExercisesA(): List<ExerciseItem> = listOf(
+    ExerciseItem("Barbell Bench Press", "Horizontal push", "Chest, front delts, triceps", "4 sets × 6 to 8 reps"),
+    ExerciseItem("Incline Dumbbell Press", "Incline push", "Upper chest, front delts, triceps", "3 sets × 8 to 10 reps"),
+    ExerciseItem("Standing Overhead Press", "Vertical push", "Shoulders, triceps, upper chest", "4 sets × 6 to 8 reps"),
+    ExerciseItem("Dumbbell Lateral Raise", "Shoulder isolation", "Side delts", "3 sets × 12 to 15 reps"),
+    ExerciseItem("Cable Tricep Pushdown", "Elbow extension", "Triceps", "3 sets × 10 to 12 reps"),
+    ExerciseItem("Hanging Knee Raise", "Core flexion", "Lower abs, hip flexors", "3 sets × 12 to 15 reps")
+)
+
+private fun pullExercisesA(): List<ExerciseItem> = listOf(
+    ExerciseItem("Lat Pulldown", "Vertical pull", "Lats, biceps, upper back", "4 sets × 8 to 10 reps"),
+    ExerciseItem("Barbell Row", "Horizontal pull", "Mid back, lats, rear delts, biceps", "4 sets × 6 to 8 reps"),
+    ExerciseItem("Seated Cable Row", "Horizontal pull", "Mid back, rhomboids, biceps", "3 sets × 10 to 12 reps"),
+    ExerciseItem("Face Pull", "Rear delt / scapular pull", "Rear delts, traps, upper back", "3 sets × 12 to 15 reps"),
+    ExerciseItem("Dumbbell Curl", "Elbow flexion", "Biceps", "3 sets × 10 to 12 reps"),
+    ExerciseItem("Plank", "Core stability", "Abs, transverse core", "3 rounds × 45 to 60 sec")
+)
+
+private fun legsExercisesA(): List<ExerciseItem> = listOf(
+    ExerciseItem("Back Squat", "Squat pattern", "Quads, glutes, core", "4 sets × 6 to 8 reps"),
+    ExerciseItem("Romanian Deadlift", "Hip hinge", "Hamstrings, glutes, lower back", "4 sets × 8 to 10 reps"),
+    ExerciseItem("Walking Lunge", "Split squat pattern", "Quads, glutes, hamstrings", "3 sets × 10 each leg"),
+    ExerciseItem("Leg Curl", "Knee flexion", "Hamstrings", "3 sets × 12 reps"),
+    ExerciseItem("Standing Calf Raise", "Ankle plantarflexion", "Calves", "4 sets × 15 reps"),
+    ExerciseItem("Cable Crunch", "Core flexion", "Abs", "3 sets × 15 reps")
+)
+
+private fun pushExercisesB(): List<ExerciseItem> = listOf(
+    ExerciseItem("Dumbbell Bench Press", "Horizontal push", "Chest, front delts, triceps", "4 sets × 8 reps"),
+    ExerciseItem("Machine Chest Press", "Horizontal push", "Chest, triceps", "3 sets × 10 reps"),
+    ExerciseItem("Arnold Press", "Vertical push", "Shoulders, triceps", "3 sets × 8 to 10 reps"),
+    ExerciseItem("Cable Fly", "Chest isolation", "Chest", "3 sets × 12 to 15 reps"),
+    ExerciseItem("Overhead Tricep Extension", "Elbow extension", "Triceps long head", "3 sets × 10 to 12 reps"),
+    ExerciseItem("Dead Bug", "Core control", "Abs, deep core", "3 sets × 12 each side")
+)
+
+private fun pullExercisesB(): List<ExerciseItem> = listOf(
+    ExerciseItem("Pull Up or Assisted Pull Up", "Vertical pull", "Lats, biceps, upper back", "4 sets × 6 to 8 reps"),
+    ExerciseItem("Chest Supported Row", "Horizontal pull", "Mid back, lats, rear delts", "3 sets × 8 to 10 reps"),
+    ExerciseItem("Single Arm Dumbbell Row", "Horizontal pull", "Lats, mid back, biceps", "3 sets × 10 each side"),
+    ExerciseItem("Rear Delt Fly", "Shoulder abduction", "Rear delts, upper back", "3 sets × 12 to 15 reps"),
+    ExerciseItem("Hammer Curl", "Elbow flexion", "Biceps, brachialis, forearms", "3 sets × 10 to 12 reps"),
+    ExerciseItem("Reverse Crunch", "Core flexion", "Lower abs", "3 sets × 15 reps")
+)
+
+private fun legsExercisesB(): List<ExerciseItem> = listOf(
+    ExerciseItem("Front Squat or Goblet Squat", "Squat pattern", "Quads, glutes, core", "4 sets × 8 reps"),
+    ExerciseItem("Leg Press", "Squat pattern", "Quads, glutes", "3 sets × 10 to 12 reps"),
+    ExerciseItem("Bulgarian Split Squat", "Single leg squat", "Quads, glutes", "3 sets × 8 each leg"),
+    ExerciseItem("Hip Thrust", "Hip hinge / bridge", "Glutes, hamstrings", "3 sets × 10 reps"),
+    ExerciseItem("Seated Calf Raise", "Ankle plantarflexion", "Calves", "4 sets × 15 reps"),
+    ExerciseItem("Mountain Climbers", "Core + conditioning", "Abs, hip flexors, shoulders", "3 rounds × 30 sec")
+)
+
+private fun restDayExercises(): List<ExerciseItem> = listOf(
+    ExerciseItem("Brisk Walk", "Low intensity cardio", "Recovery, circulation", "20 to 30 min"),
+    ExerciseItem("Hip Flexor Stretch", "Mobility", "Hip flexors, quads", "2 rounds × 30 sec each side"),
+    ExerciseItem("Thoracic Rotation", "Mobility", "Upper back, shoulders", "2 rounds × 10 each side"),
+    ExerciseItem("Hamstring Stretch", "Mobility", "Hamstrings", "2 rounds × 30 sec each side"),
+    ExerciseItem("Breathing / Cool Down", "Recovery", "Nervous system reset", "5 min")
+)
+
+private fun defaultWorkout(day: Int): Triple<String, String, List<ExerciseItem>> {
     return when ((day - 1) % 6) {
-        0 -> "Push" to "Bench press, incline press, shoulder press, lateral raise, triceps, core"
-        1 -> "Pull" to "Rows, pulldowns, curls, rear delts, face pulls, core"
-        2 -> "Legs" to "Squats, RDL, lunges, calves, core"
-        3 -> "Push" to "Chest, shoulders, triceps, core"
-        4 -> "Pull" to "Back, biceps, rear delts, core"
-        else -> "Legs" to "Legs, conditioning, core"
+        0 -> Triple("Push", "Chest, shoulders, triceps, core", pushExercisesA())
+        1 -> Triple("Pull", "Back, biceps, rear delts, core", pullExercisesA())
+        2 -> Triple("Legs", "Quads, hamstrings, glutes, calves, core", legsExercisesA())
+        3 -> Triple("Push", "Chest, shoulders, triceps, core", pushExercisesB())
+        4 -> Triple("Pull", "Back, biceps, rear delts, core", pullExercisesB())
+        else -> Triple("Legs", "Quads, glutes, hamstrings, calves, core", legsExercisesB())
     }
 }
 
@@ -174,22 +252,43 @@ private fun buildDefaultData(): AppData {
             day = day,
             workoutType = workout.first,
             workoutTarget = workout.second,
-            meals = defaultMeals()
+            meals = defaultMeals(),
+            exercises = workout.third
         )
     }
-    return AppData(days = days)
+    return AppData(
+        startDate = LocalDate.now().toString(),
+        days = days
+    )
 }
 
 private fun normalizeLoadedData(data: AppData): AppData {
+    val safeStartDate = runCatching { LocalDate.parse(data.startDate) }
+        .getOrElse { LocalDate.now() }
+        .toString()
+
     val fixed = data.days.mapIndexed { index, d ->
-        d.copy(
-            day = index + 1,
-            meals = if (d.meals.isEmpty()) {
-                if (d.isRestDay) restMeals() else defaultMeals()
-            } else d.meals
-        )
+        val rebuilt = if (d.isRestDay) {
+            d.copy(
+                day = index + 1,
+                workoutType = "Rest Day",
+                workoutTarget = "Recovery, mobility, stretching, walking, hydration",
+                meals = if (d.meals.isEmpty()) restMeals() else d.meals,
+                exercises = if (d.exercises.isEmpty()) restDayExercises() else d.exercises
+            )
+        } else {
+            val fallback = defaultWorkout(index + 1)
+            d.copy(
+                day = index + 1,
+                workoutType = if (d.workoutType.isBlank()) fallback.first else d.workoutType,
+                workoutTarget = if (d.workoutTarget.isBlank()) fallback.second else d.workoutTarget,
+                meals = if (d.meals.isEmpty()) defaultMeals() else d.meals,
+                exercises = if (d.exercises.isEmpty()) fallback.third else d.exercises
+            )
+        }
+        rebuilt
     }
-    return AppData(fixed)
+    return AppData(startDate = safeStartDate, days = fixed)
 }
 
 private fun saveData(context: Context, data: AppData) {
@@ -213,6 +312,11 @@ private fun loadData(context: Context): AppData {
 @Stable
 private data class NavItem(val key: String, val label: String)
 
+private fun dayDate(appData: AppData, dayNumber: Int): LocalDate {
+    val start = runCatching { LocalDate.parse(appData.startDate) }.getOrElse { LocalDate.now() }
+    return start.plusDays((dayNumber - 1).toLong())
+}
+
 @Composable
 fun Fit40Root(context: Context) {
     MaterialTheme(colorScheme = Fit40Colors) {
@@ -226,7 +330,7 @@ fun Fit40Root(context: Context) {
 @Composable
 fun Fit40App(context: Context) {
     var data by remember { mutableStateOf(AppData()) }
-    var selectedDay by remember { mutableStateOf(1) }
+    var selectedDay by remember { mutableIntStateOf(1) }
     var tab by remember { mutableStateOf("home") }
     val snackbars = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -245,7 +349,7 @@ fun Fit40App(context: Context) {
 
     fun updateDay(updated: DayEntry, message: String? = null) {
         val updatedDays = data.days.map { if (it.day == updated.day) updated else it }
-        persist(AppData(updatedDays), message)
+        persist(data.copy(days = updatedDays), message)
     }
 
     fun addRestDay(afterDay: Int) {
@@ -255,14 +359,24 @@ fun Fit40App(context: Context) {
             day = 0,
             workoutType = "Rest Day",
             workoutTarget = "Recovery, mobility, stretching, walking, hydration",
-            workoutDone = false,
             meals = restMeals(),
+            exercises = restDayExercises(),
             isRestDay = true
         )
         current.add(insertIndex.coerceAtLeast(0), rest)
         val renumbered = current.mapIndexed { index, day -> day.copy(day = index + 1) }
-        persist(AppData(renumbered), "Rest day added")
+        persist(data.copy(days = renumbered), "Rest day added")
         selectedDay = (insertIndex + 1).coerceAtLeast(1)
+    }
+
+    fun removeRestDay(dayNumber: Int) {
+        val current = data.days.toMutableList()
+        val target = current.find { it.day == dayNumber }
+        if (target == null || !target.isRestDay) return
+        current.removeAll { it.day == dayNumber }
+        val renumbered = current.mapIndexed { index, day -> day.copy(day = index + 1) }
+        persist(data.copy(days = renumbered), "Rest day removed")
+        selectedDay = selectedDay.coerceAtMost(renumbered.size.coerceAtLeast(1))
     }
 
     val currentDay = data.days.getOrNull((selectedDay - 1).coerceAtLeast(0))
@@ -336,7 +450,8 @@ fun Fit40App(context: Context) {
                     appData = data,
                     onSelectDay = { selectedDay = it },
                     onUpdateDay = { updateDay(it, "Day updated") },
-                    onAddRestDay = { addRestDay(it) }
+                    onAddRestDay = { addRestDay(it) },
+                    onRemoveRestDay = { removeRestDay(it) }
                 )
                 else -> ProgressScreen(data = data)
             }
@@ -358,6 +473,7 @@ fun HomeScreen(
     val mealsDone = appData.days.sumOf { d -> d.meals.count { it.done } }
     val workoutProgress = workoutDone.toFloat() / totalWorkoutDays
     val mealProgress = mealsDone.toFloat() / totalMeals
+    val date = dayDate(appData, day.day)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -365,7 +481,7 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            HeroCard(day, onOpenDay)
+            HeroCard(day, date, onOpenDay)
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -389,23 +505,16 @@ fun HomeScreen(
                 )
             }
         }
-        item {
-            SectionTitle("Today")
-        }
-        item {
-            TodayWorkoutCard(day = day, onUpdateDay = onUpdateDay)
-        }
-        item {
-            MealsCard(day = day, onUpdateDay = onUpdateDay)
-        }
-        item {
-            NotesWeightCard(day = day, onUpdateDay = onUpdateDay)
-        }
+        item { SectionTitle("Today") }
+        item { TodayWorkoutCard(day = day, onUpdateDay = onUpdateDay) }
+        item { ExercisePlanCard(day = day) }
+        item { MealsCard(day = day, onUpdateDay = onUpdateDay) }
+        item { NotesWeightCard(day = day, onUpdateDay = onUpdateDay) }
     }
 }
 
 @Composable
-fun HeroCard(day: DayEntry, onOpenDay: (Int) -> Unit) {
+fun HeroCard(day: DayEntry, date: LocalDate, onOpenDay: (Int) -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AppCard),
         shape = RoundedCornerShape(28.dp),
@@ -425,7 +534,7 @@ fun HeroCard(day: DayEntry, onOpenDay: (Int) -> Unit) {
         ) {
             AssistChip(
                 onClick = { onOpenDay(day.day) },
-                label = { Text("Day ${day.day}") },
+                label = { Text("Day ${day.day} • ${date.format(DISPLAY_DATE)}") },
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = Color.White.copy(alpha = 0.12f),
                     labelColor = Color.White
@@ -512,9 +621,7 @@ fun StatCard(
             Spacer(Modifier.height(12.dp))
             LinearProgressIndicator(
                 progress = { progress.coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
+                modifier = Modifier.fillMaxWidth().height(8.dp),
                 color = accent,
                 trackColor = Color.White.copy(alpha = 0.10f),
                 strokeCap = StrokeCap.Round
@@ -544,7 +651,7 @@ fun TodayWorkoutCard(day: DayEntry, onUpdateDay: (DayEntry) -> Unit) {
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    if (day.isRestDay) "Rest day plan" else "Workout target",
+                    if (day.isRestDay) "Rest day plan" else "Workout overview",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -560,6 +667,37 @@ fun TodayWorkoutCard(day: DayEntry, onUpdateDay: (DayEntry) -> Unit) {
                         }
                     )
                     Text(if (day.workoutDone) "Completed for today" else "Mark workout complete")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExercisePlanCard(day: DayEntry) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AppCard),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SportsGymnastics, contentDescription = null, tint = AppAccent)
+                Spacer(Modifier.width(10.dp))
+                Text("Detailed plan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            day.exercises.forEach { exercise ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(16.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(exercise.name, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Movement • ${exercise.movement}", color = AppTextSubtle, style = MaterialTheme.typography.bodySmall)
+                    Text("Target • ${exercise.targetMuscles}", color = AppTextSubtle, style = MaterialTheme.typography.bodySmall)
+                    Text("Prescription • ${exercise.reps}", color = Color.White, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -644,7 +782,8 @@ fun DaysScreen(
     appData: AppData,
     onSelectDay: (Int) -> Unit,
     onUpdateDay: (DayEntry) -> Unit,
-    onAddRestDay: (Int) -> Unit
+    onAddRestDay: (Int) -> Unit,
+    onRemoveRestDay: (Int) -> Unit
 ) {
     val expanded = remember { mutableStateMapOf<Int, Boolean>() }
 
@@ -653,13 +792,12 @@ fun DaysScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            SectionTitle("All days")
-        }
+        item { SectionTitle("All days") }
 
         items(appData.days) { day ->
             val doneMeals = day.meals.count { it.done }
             val isExpanded = expanded[day.day] == true
+            val date = dayDate(appData, day.day)
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = AppCard),
@@ -689,7 +827,9 @@ fun DaysScreen(
                                     if (day.isRestDay) AppRest else AppAccent
                                 )
                             }
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
+                            Text(date.format(DISPLAY_DATE), color = AppTextSubtle, style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(4.dp))
                             Text(
                                 day.workoutTarget,
                                 color = AppTextSubtle,
@@ -718,6 +858,8 @@ fun DaysScreen(
                         Spacer(Modifier.height(16.dp))
                         TodayWorkoutCard(day, onUpdateDay)
                         Spacer(Modifier.height(12.dp))
+                        ExercisePlanCard(day)
+                        Spacer(Modifier.height(12.dp))
                         MealsCard(day, onUpdateDay)
                         Spacer(Modifier.height(12.dp))
                         NotesWeightCard(day, onUpdateDay)
@@ -729,6 +871,17 @@ fun DaysScreen(
                             Icon(Icons.Default.AddCircle, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Add rest day after this")
+                        }
+                        if (day.isRestDay) {
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = { onRemoveRestDay(day.day) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Remove this rest day")
+                            }
                         }
                     }
                 }
@@ -759,18 +912,14 @@ fun ProgressScreen(data: AppData) {
     val workoutProgress = workoutDone.toFloat() / totalWorkoutDays.toFloat()
     val mealProgress = mealsDone.toFloat() / totalMeals.toFloat()
     val streak = calculateWorkoutStreak(data.days)
-    val weightPoints = data.days.mapNotNull { d ->
-        d.weight.toFloatOrNull()?.let { d.day to it }
-    }
+    val weightPoints = data.days.mapNotNull { d -> d.weight.toFloatOrNull()?.let { d.day to it } }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            SectionTitle("Progress")
-        }
+        item { SectionTitle("Progress") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard(
@@ -794,9 +943,12 @@ fun ProgressScreen(data: AppData) {
             }
         }
         item {
+            CalendarPlanCard(data)
+        }
+        item {
             ModernChartCard(
                 title = "Workout completion by day",
-                subtitle = "Rest days are skipped from workout completion",
+                subtitle = "Rest days are excluded from workout scoring",
                 values = data.days.map {
                     when {
                         it.isRestDay -> 0.06f
@@ -819,11 +971,18 @@ fun ProgressScreen(data: AppData) {
                 baselineColor = Color.White.copy(alpha = 0.08f)
             )
         }
+        item { WeightCard(weightPoints) }
         item {
-            WeightCard(weightPoints)
-        }
-        item {
-            SummaryCard(workoutDone, totalWorkoutDays, mealsDone, totalMeals, streak, workoutProgress, mealProgress, data.days.count { it.isRestDay })
+            SummaryCard(
+                workoutDone,
+                totalWorkoutDays,
+                mealsDone,
+                totalMeals,
+                streak,
+                workoutProgress,
+                mealProgress,
+                data.days.count { it.isRestDay }
+            )
         }
     }
 }
@@ -835,6 +994,102 @@ private fun calculateWorkoutStreak(days: List<DayEntry>): Int {
         if (day.workoutDone) streak++ else break
     }
     return streak
+}
+
+@Composable
+fun CalendarPlanCard(data: AppData) {
+    val start = runCatching { LocalDate.parse(data.startDate) }.getOrElse { LocalDate.now() }
+    val firstDate = start
+    val lastDate = start.plusDays((data.days.size - 1).coerceAtLeast(0).toLong())
+    val calendarStart = firstDate.minusDays((firstDate.dayOfWeek.value % 7).toLong())
+    val calendarEnd = lastDate.plusDays((6 - (lastDate.dayOfWeek.value % 7)).toLong())
+    val allDates = generateSequence(calendarStart) { date ->
+        if (date < calendarEnd) date.plusDays(1) else null
+    }.toList() + calendarEnd
+
+    val mapped = data.days.associateBy { dayDate(data, it.day) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AppCard),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = AppAccent2)
+                Spacer(Modifier.width(10.dp))
+                Text("Calendar plan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+
+            Text(
+                "${firstDate.format(DISPLAY_DATE)} to ${lastDate.format(DISPLAY_DATE)}",
+                color = AppTextSubtle,
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat").forEach {
+                    Text(it, modifier = Modifier.width(44.dp), color = AppTextSubtle, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            allDates.chunked(7).forEach { week ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    week.forEach { date ->
+                        val entry = mapped[date]
+                        CalendarCell(date, entry, date < firstDate || date > lastDate)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CalendarCell(date: LocalDate, entry: DayEntry?, muted: Boolean) {
+    val bg = when {
+        entry == null -> Color.Transparent
+        entry.isRestDay -> AppRest.copy(alpha = 0.16f)
+        entry.workoutDone -> AppSuccess.copy(alpha = 0.18f)
+        else -> AppAccent.copy(alpha = 0.14f)
+    }
+
+    val chip = when {
+        entry == null -> ""
+        entry.isRestDay -> "REST"
+        else -> entry.workoutType.uppercase()
+    }
+
+    Box(
+        modifier = Modifier
+            .width(44.dp)
+            .height(64.dp)
+            .background(bg, RoundedCornerShape(12.dp))
+            .padding(6.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                date.dayOfMonth.toString(),
+                color = if (muted) AppTextSubtle.copy(alpha = 0.45f) else Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+            if (chip.isNotEmpty()) {
+                Text(
+                    chip,
+                    color = if (entry?.isRestDay == true) AppRest else if (entry?.workoutDone == true) AppSuccess else Color.White,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            if (entry != null) {
+                Text(
+                    "D${entry.day}",
+                    color = AppTextSubtle,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -856,11 +1111,7 @@ fun ModernChartCard(
             Text(subtitle, color = AppTextSubtle, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(16.dp))
 
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(190.dp)
-            ) {
+            Canvas(modifier = Modifier.fillMaxWidth().height(190.dp)) {
                 val count = max(1, values.size)
                 val gap = 8f
                 val chartWidth = size.width
@@ -937,16 +1188,8 @@ fun WeightCard(weightPoints: List<Pair<Int, Float>>) {
                     weightPoints.forEachIndexed { index, point ->
                         val x = index * stepX
                         val y = size.height - ((point.second - minY) / range) * size.height
-                        drawCircle(
-                            color = Color.White,
-                            radius = 10f,
-                            center = Offset(x, y)
-                        )
-                        drawCircle(
-                            color = AppSuccess,
-                            radius = 6f,
-                            center = Offset(x, y)
-                        )
+                        drawCircle(color = Color.White, radius = 10f, center = Offset(x, y))
+                        drawCircle(color = AppSuccess, radius = 6f, center = Offset(x, y))
                     }
                 }
             }
