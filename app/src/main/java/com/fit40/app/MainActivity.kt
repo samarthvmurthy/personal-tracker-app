@@ -985,7 +985,44 @@ fun ProgressScreen(data: AppData) {
         }
         item { WeightCard(weightPoints) }
         item {
-            SummaryCard(
+            
+            var startDateInput by remember { mutableStateOf(data.startDate) }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AppCard),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Edit Start Date", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = startDateInput,
+                        onValueChange = { startDateInput = it },
+                        label = { Text("YYYY-MM-DD") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            val updated = data.copy(startDate = startDateInput)
+                            val updatedDays = updated.days
+                            val newData = updated.copy(days = updatedDays)
+                            (context as? MainActivity)?.let {
+                                saveData(it, newData)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save Start Date")
+                    }
+                }
+            }
+
+SummaryCard(
                 workoutDone,
                 totalWorkoutDays,
                 mealsDone,
@@ -1210,7 +1247,44 @@ fun WeightCard(weightPoints: List<Pair<Int, Float>>) {
 }
 
 @Composable
-fun SummaryCard(
+fun 
+            var startDateInput by remember { mutableStateOf(data.startDate) }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AppCard),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Edit Start Date", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = startDateInput,
+                        onValueChange = { startDateInput = it },
+                        label = { Text("YYYY-MM-DD") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            val updated = data.copy(startDate = startDateInput)
+                            val updatedDays = updated.days
+                            val newData = updated.copy(days = updatedDays)
+                            (context as? MainActivity)?.let {
+                                saveData(it, newData)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save Start Date")
+                    }
+                }
+            }
+
+SummaryCard(
     workoutDone: Int,
     totalDays: Int,
     mealsDone: Int,
