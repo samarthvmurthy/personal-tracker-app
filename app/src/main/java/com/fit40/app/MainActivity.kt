@@ -91,6 +91,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
 
@@ -330,7 +331,18 @@ fun Fit40Root(context: Context) {
 @Composable
 fun Fit40App(context: Context) {
     var data by remember { mutableStateOf(AppData()) }
-    var selectedDay by remember { mutableIntStateOf(1) }
+    
+var selectedDay by remember {
+    mutableIntStateOf(
+        run {
+            val start = runCatching { LocalDate.parse(data.startDate) }.getOrElse { LocalDate.now() }
+            val today = LocalDate.now()
+            val diff = ChronoUnit.DAYS.between(start, today).toInt() + 1
+            diff.coerceIn(1, 40)
+        }
+    )
+}
+
     var tab by remember { mutableStateOf("home") }
     val snackbars = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
