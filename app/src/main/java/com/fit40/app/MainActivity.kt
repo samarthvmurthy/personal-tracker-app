@@ -265,7 +265,7 @@ private fun buildDefaultData(): AppData {
 
 private fun normalizeLoadedData(data: AppData): AppData {
     val safeStartDate = runCatching { LocalDate.parse(data.startDate) }
-        .getOrElse { LocalDate.now() }
+        .getOrElse { LocalDate.now().minusDays(1) }
         .toString()
 
     val fixed = data.days.mapIndexed { index, d ->
